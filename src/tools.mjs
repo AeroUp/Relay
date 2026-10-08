@@ -4,12 +4,12 @@ import { LABEL } from './core/agents.mjs';
 import { getTicket, cancelTicket, resumeNow, describeTicket } from './relay.mjs';
 import { handoff, status, detectCaller } from './ops.mjs';
 
-const AGENT_ENUM = ['claude', 'codex', 'gemini'];
+const AGENT_ENUM = ['claude', 'codex', 'antigravity'];
 
 export const TOOLS = [
   {
     name: 'status',
-    description: 'Which AI agents (claude, codex, gemini) are installed, which are usage-limited and until when (plus Codex usage %), and active relays. Call before handing off.',
+    description: 'Which AI agents (claude, codex, antigravity) are installed, which are usage-limited and until when (plus Codex usage %), and active relays. Call before handing off.',
     inputSchema: { type: 'object', properties: {} },
     annotations: { readOnlyHint: true },
   },
@@ -44,7 +44,7 @@ export const TOOLS = [
   },
 ];
 
-export const instructions = () => `Relay lets you (${detectCaller() || 'this agent'}) hand your task to another AI coding agent (Claude Code, Codex or Gemini) `
+export const instructions = () => `Relay lets you (${detectCaller() || 'this agent'}) hand your task to another AI coding agent (Claude Code, Codex or Antigravity) `
   + 'when you are at or near your usage limit, and wakes you up later to review its work and finish. In Claude Code this also happens automatically '
   + 'when a usage limit stops the session. Use "status" to see who is available, then "handoff" with a thorough baton. Always pass cwd.';
 

@@ -16,7 +16,7 @@ export const DEFAULTS = {
   // Relay automatically when Claude Code stops on a usage limit.
   enabled: true,
   // Who picks up the work while the primary agent is rate-limited, in order.
-  fallback_chain: ['codex', 'gemini', 'claude'],
+  fallback_chain: ['codex', 'antigravity', 'claude'],
   // Start a fallback agent automatically when a limit is hit (false = only wait and resume).
   auto_fallback: true,
   // When the primary's limit resets while the fallback is still working:

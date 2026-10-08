@@ -15,7 +15,7 @@ import {
 function parseArgs(argv) {
   const pos = [];
   const flags = {};
-  const BOOL = new Set(['wait', 'once', 'no-autostart']);
+  const BOOL = new Set(['wait', 'once', 'no-autostart', 'json']);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a.startsWith('--')) {
@@ -48,7 +48,7 @@ function showTicket(t) {
 const HELP = `relay ${VERSION}: when your AI agent runs out of usage, another one takes the baton.
 
 Setup
-  relay install [--only claude,codex,gemini,antigravity] [--no-autostart]
+  relay install [--only claude,codex,antigravity] [--no-autostart]
   relay uninstall
   relay doctor                         who is installed / usage-limited, waker, relays
   relay config [get <key> | set <key> <value> | path]
@@ -58,9 +58,9 @@ Relays
   relay show <id>                      log + live output of a relay
   relay cancel <id>                    stop a relay and its running partner
   relay now <id>                       wake the primary agent right away
-  relay handoff <claude|codex|gemini|auto> --baton notes.md [--task "..."] [--cwd .]
+  relay handoff <claude|codex|antigravity|auto> --baton notes.md [--task "..."] [--cwd .]
                [--resume after_reset|after_handoff|on_next_message|never] [--reset-at "3pm"] [--from claude]
-  relay run "task" [--chain claude,codex,gemini] [--access write] [--cwd .] [--wait]
+  relay run "task" [--chain claude,codex,antigravity] [--access write] [--cwd .] [--wait]
 
 Internal: mcp, waker [--once], hook <stop-failure|session-start|user-prompt>, _job <id>, selftest`;
 
@@ -96,7 +96,7 @@ async function main() {
       const { install } = await import('../src/install.mjs');
       console.log('Installing Relay…');
       await install({ only: list(flags.only), autostart: !flags['no-autostart'] });
-      console.log('\nDone. Restart your agents (Claude Code, Codex, Gemini CLI, Antigravity) so they load the "relay" MCP server and skill.\nCheck with: relay doctor');
+      console.log('\nDone. Restart your agents (Claude Code, Codex, Antigravity) so they load the "relay" MCP server and skill.\nCheck with: relay doctor');
       return;
     }
     case 'uninstall': {
@@ -107,6 +107,7 @@ async function main() {
     case 'status': {
       const s = status();
       const { installedTargets } = await import('../src/install.mjs');
+      if (flags.json) return out({ version: VERSION, data_dir: APP_HOME, wired_into: installedTargets(), config: loadConfig(), ...s });
       console.log(`Relay ${VERSION} · data ${APP_HOME}\n`);
       for (const a of s.agents) {
         const v = a.installed ? await agentVersion(a.agent) : null;

@@ -1,19 +1,19 @@
 {
   "name": "relay-agents",
   "version": "0.1.0",
-  "description": "When your AI coding agent hits its usage limit, another one takes the baton, and the first wakes up to review and finish when its limit resets. Works with Claude Code, Codex, Gemini CLI and Antigravity.",
+  "description": "When your AI coding agent hits its usage limit, another one takes the baton, and the first wakes up to review and finish when its limit resets. Works with Claude Code, Codex and Antigravity.",
   "type": "module",
   "bin": {
     "relay": "bin/relay.mjs"
   },
-  "files": ["bin", "src", "skills", "test", "README.md", "LICENSE"],
+  "files": ["bin", "src", "skills", "test", "README.md", "AGENT_SETUP.md", "LICENSE"],
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "test": "node bin/relay.mjs selftest"
   },
-  "keywords": ["claude-code", "codex", "gemini-cli", "antigravity", "usage-limit", "rate-limit", "failover", "mcp", "agents", "agent-skills"],
+  "keywords": ["claude-code", "codex", "antigravity", "antigravity-cli", "agy", "usage-limit", "rate-limit", "failover", "mcp", "agents", "agent-skills"],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/AeroUp/Relay.git"

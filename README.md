@@ -35,11 +35,23 @@ Codex picks up the baton ──► keeps working on the task in the background
 
 You get a desktop notification at each step. If Codex runs out too, the next agent in the chain takes over. If you come back to the chat before the reset, Relay adds Codex's progress to your next message instead.
 
-Works with **Claude Code, Codex, Gemini CLI and Antigravity**, using your existing logins and subscriptions. You don't need API keys.
+Works with **Claude Code, Codex and Antigravity** (the IDE and the `agy` CLI), using your existing logins and subscriptions. You don't need API keys.
 
 ## Install
 
-You need **Node.js 20+**, and Claude Code plus at least one of: [Codex](https://github.com/openai/codex), [Gemini CLI](https://github.com/google-gemini/gemini-cli), [Antigravity](https://antigravity.google). Log in to each one once before installing.
+### Easiest: let your AI agent do it
+
+Paste this into Claude Code, Codex or Antigravity:
+
+```
+Set up Relay for me by following https://raw.githubusercontent.com/AeroUp/Relay/main/AGENT_SETUP.md
+```
+
+The agent checks the prerequisites, installs Relay, verifies it, and tells you what changed. It follows [AGENT_SETUP.md](AGENT_SETUP.md).
+
+### Manual
+
+You need **Node.js 20+**, and Claude Code plus at least one of: [Codex](https://github.com/openai/codex), [Antigravity](https://antigravity.google) (the `agy` CLI, which replaced Gemini CLI, or the IDE). Log in to each one once before installing.
 
 ```bash
 git clone https://github.com/AeroUp/Relay.git
@@ -66,7 +78,7 @@ It backs up every file it touches to `*.bak-relay` first.
     - `UserPromptSubmit`: delivers reports when you come back.
   - Adds the `relay` skill.
 - **Codex:** adds a marked MCP block to `~/.codex/config.toml` and the skill in `~/.agents/skills/`.
-- **Gemini CLI / Antigravity:** adds `mcpServers.relay` and the skill.
+- **Antigravity (IDE + `agy` CLI):** adds `mcpServers.relay` to `~/.gemini/config/mcp_config.json`, allows `mcp(relay/*)` for headless runs, and adds the skill.
 - **A login item**, so relays that are still waiting survive a reboot. This is a hidden Startup script on Windows, a LaunchAgent on macOS, or an XDG autostart entry on Linux. Leave it out with `--no-autostart`.
 
 The config points at the folder you installed from, so keep the clone where it is. If you move it, run `install` again.
@@ -84,7 +96,7 @@ The config points at the folder you installed from, so keep the clone where it i
 **3. Autopilot (terminal).** Start a task with failover built in:
 
 ```bash
-relay run "add dark mode to the settings page" --chain claude,codex,gemini --cwd ~/my-app --wait
+relay run "add dark mode to the settings page" --chain claude,codex,antigravity --cwd ~/my-app --wait
 ```
 
 ## Commands
@@ -96,7 +108,7 @@ relay show <id>              # a relay's log + its partner's live output
 relay now <id>               # wake the primary agent right away
 relay cancel <id>            # stop a relay and its running partner
 relay handoff codex --baton notes.md --task "…" --resume after_handoff
-relay config set fallback_chain '["codex","gemini"]'
+relay config set fallback_chain '["codex","antigravity"]'
 ```
 
 `relay` means `node bin/relay.mjs`. To get a real `relay` command, either run `npm link` inside the clone, or install with `npm i -g github:AeroUp/Relay` and then run `relay install`.
@@ -110,7 +122,7 @@ MCP tools: `status`, `handoff`, `relays`.
 | Key | Default | |
 |---|---|---|
 | `enabled` | `true` | Relay automatically when Claude Code stops on a usage limit |
-| `fallback_chain` | `["codex","gemini","claude"]` | Who takes over, in order |
+| `fallback_chain` | `["codex","antigravity","claude"]` | Who takes over, in order |
 | `auto_fallback` | `true` | `false` = just wait for the reset and resume, with no partner |
 | `on_reset` | `"wait"` | `wait`: let the partner finish, then resume. `takeover`: stop the partner and resume now. `none`: the partner owns the task |
 | `default_access` | `"write"` | Access for unattended runs when your session asks before every action (see Safety) |
@@ -132,9 +144,9 @@ MCP tools: `status`, `handoff`, `relays`.
 
 ## Limits & honest notes
 
-- **Automatic detection is Claude Code only**, through its `StopFailure` hook. When Codex or Gemini is your main agent, use `handoff` (ask it to "tag out") or `relay run`.
+- **Automatic detection is Claude Code only**, through its `StopFailure` hook. When Codex or Antigravity is your main agent, use `handoff` (ask it to "tag out") or `relay run`.
 - **A resumed Claude session runs in the background.** Its work goes into the same conversation history. Reopen the session to see it, or just read `.relay/baton.md` and the diff.
-- **Gemini CLI and Antigravity support** follows their documented interfaces and is less battle-tested than Claude Code and Codex. Antigravity can hand off and receive reports, but it can't be driven headless, so it can't be a fallback runner.
+- **Antigravity support** follows the official docs but hasn't been battle-tested yet. The `agy` CLI can be a fallback runner. The Antigravity IDE alone can hand off through the MCP tools, but it can't run headless. `gemini` is still accepted as an alias for `antigravity`.
 - **Codex on Windows:** if Codex's elevated sandbox can't initialise outside its desktop app, Relay switches Codex to its unelevated sandbox, which is still sandboxed. The choice is stored in `~/.agent-state/codex.json`.
 
 ## Pairs well with Tag-Team

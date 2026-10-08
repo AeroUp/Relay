@@ -2,7 +2,7 @@
 import path from 'node:path';
 import { ENV, fmtTime, fmtIn } from './core/util.mjs';
 import { loadConfig } from './core/config.mjs';
-import { AGENTS, LABEL, resolveAgent, runAgent, depth } from './core/agents.mjs';
+import { AGENTS, LABEL, resolveAgent, runAgent, depth, normAgent } from './core/agents.mjs';
 import { limitedUntil, parseResetTime, codexUsage } from './core/limits.mjs';
 import { acquireSlot } from './core/jobs.mjs';
 import { createTicket, writeBaton, ensureWaker, stepTicket, getTicket, listTickets, describeTicket, wakerRunning } from './relay.mjs';
@@ -14,7 +14,6 @@ export function detectCaller() {
   const e = process.env;
   if (e[ENV.SELF]) return e[ENV.SELF];
   if (e.CLAUDECODE || e.CLAUDE_CODE_ENTRYPOINT) return 'claude';
-  if (e.GEMINI_CLI) return 'gemini';
   return null;
 }
 
@@ -28,7 +27,7 @@ export function guard() {
 /** Run one leg of a relay: a single agent, headless. Executed inside a background job. */
 export async function ask(p, ctx = {}) {
   guard();
-  const agent = p.agent;
+  const agent = normAgent(p.agent);
   if (!resolveAgent(agent)) return { ok: false, agent, error: `${label(agent)} is not installed.` };
   const lu = limitedUntil(agent);
   if (lu) return { ok: false, agent, error: `${label(agent)} is usage-limited until ${fmtTime(lu)}`, limited_until: lu };
@@ -51,8 +50,8 @@ export function handoff(p) {
   guard();
   const cwd = path.resolve(p.cwd || process.cwd());
   const from = p.from || detectCaller() || 'claude';
-  const to = p.to && p.to !== 'auto' ? p.to : null;
-  if (to && !AGENTS.includes(to)) return { ok: false, error: `Unknown agent "${to}". Use claude, codex or gemini.` };
+  const to = p.to && p.to !== 'auto' ? normAgent(p.to) : null;
+  if (to && !AGENTS.includes(to)) return { ok: false, error: `Unknown agent "${to}". Use claude, codex or antigravity.` };
   if (!p.baton?.trim() && !p.task?.trim()) return { ok: false, error: 'Provide a baton (handoff notes) or at least a task.' };
   const session = p.from_session_id || (from === 'claude' ? process.env.CLAUDE_CODE_SESSION_ID : null) || null;
   const resetAt = p.reset_at ? Date.parse(p.reset_at) || parseResetTime(`resets ${p.reset_at}`) : limitedUntil(from);
@@ -89,7 +88,7 @@ export function handoff(p) {
 /** Autopilot: run a task with automatic failover across a chain of agents. */
 export function autopilot(p) {
   const cwd = path.resolve(p.cwd || process.cwd());
-  const chain = (p.chain?.length ? p.chain : ['claude', 'codex', 'gemini']).filter((a) => resolveAgent(a));
+  const chain = [...new Set((p.chain?.length ? p.chain : ['claude', 'codex', 'antigravity']).map(normAgent))].filter((a) => resolveAgent(a));
   if (!chain.length) return { ok: false, error: 'None of the chain agents are installed.' };
   const primary = chain.find((a) => !limitedUntil(a)) || chain[0];
   const batonPath = writeBaton(cwd, `# Relay baton\n\n## Task\n${p.task}\n\n## Progress\n(nothing yet)`, { from: 'autopilot' });

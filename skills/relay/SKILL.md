@@ -1,6 +1,6 @@
 ---
 name: relay
-description: Usage-limit relay. Hand the current task to another AI agent (Codex, Claude or Gemini) when you are at or near your usage limit, and get woken up automatically when your limit resets to review its work and finish. Use when the user says "tag out", "hand this off", "I'm almost out of usage", "continue this with codex/gemini/claude", "keep going while I'm limited", "wake up when my limit resets", or asks about a relay already in progress.
+description: Usage-limit relay. Hand the current task to another AI agent (Codex, Claude or Antigravity) when you are at or near your usage limit, and get woken up automatically when your limit resets to review its work and finish. Use when the user says "tag out", "hand this off", "I'm almost out of usage", "continue this with codex/antigravity/claude", "keep going while I'm limited", "wake up when my limit resets", or asks about a relay already in progress.
 ---
 
 # Relay: tag out, tag back in
@@ -13,7 +13,7 @@ Relay is an MCP server called `relay`. In Claude Code its tools appear as `mcp__
 
 Relay installs Claude Code hooks. If Claude hits its usage limit mid-task, nobody has to do anything:
 1. The `StopFailure` hook reads the reset time and writes a baton to `<project>/.relay/baton.md` from the transcript: the original request, follow-up messages, todo list, files touched and last messages.
-2. The first available agent in the fallback chain (default: Codex, then Gemini) continues the task in the background, with the access level the session had.
+2. The first available agent in the fallback chain (default: Codex, then Antigravity) continues the task in the background, with the access level the session had.
 3. When the limit resets, Claude's own session is resumed headless. It gets the partner's report, reviews the diff, fixes problems and finishes.
 4. If the user comes back to the session first, the partner's progress or report is added to their next message instead.
 
@@ -32,7 +32,7 @@ Do this when you're close to your limit, or when another agent fits the job bett
    - **Open questions**: things to decide sensibly without asking.
 2. Call **`status`** if you're not sure who's available.
 3. Call **`handoff`** with these parameters:
-   - `to`: `codex`, `claude`, `gemini` or `auto`.
+   - `to`: `codex`, `claude`, `antigravity` or `auto`.
    - `baton`: the markdown above.
    - `task`: one paragraph describing the overall task.
    - `cwd`: the project's absolute path.
@@ -62,14 +62,14 @@ You'll get a message starting with `[Relay]`.
 
 ## Autopilot (from a terminal)
 
-`{{CLI}} run "build the thing" --chain claude,codex,gemini --cwd <dir>`
+`{{CLI}} run "build the thing" --chain claude,codex,antigravity --cwd <dir>`
 
 This starts the task on the first agent and fails over across the chain on usage limits. When the first agent's limit resets, it comes back to finish.
 
 ## Settings
 
 Change these with `{{CLI}} config set <key> <value>`:
-- `fallback_chain`: who takes over, in order. Example: `["codex","gemini"]`.
+- `fallback_chain`: who takes over, in order. Example: `["codex","antigravity"]`.
 - `auto_fallback`: set to `false` to only wait and resume, without starting a partner.
 - `on_reset`: what happens when your limit resets while the partner is still working.
   - `wait` (default): let the partner finish, then resume.

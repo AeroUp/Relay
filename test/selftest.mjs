@@ -58,7 +58,7 @@ export async function selftest() {
   await t('Codex: "try again in 2 hours 13 minutes"', () => {
     assert.equal(parseResetTime("You've hit your usage limit. Try again in 2 hours 13 minutes.", now), now + (2 * 60 + 13) * 60e3);
   });
-  await t('Gemini: "Please retry in 34.5s"', () => {
+  await t('Antigravity/Gemini: "Please retry in 34.5s"', () => {
     assert.equal(parseResetTime('Quota exceeded. Please retry in 34.5s.', now), now + 34500);
   });
   await t('classify: limit vs transient vs unrelated', () => {
