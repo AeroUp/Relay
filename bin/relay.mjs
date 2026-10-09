@@ -54,6 +54,7 @@ Setup
   relay config [get <key> | set <key> <value> | path]
 
 Relays
+  relay notify [--discord <webhook>|off] send a test notification (optionally via a Discord webhook)
   relay list                           recent relays
   relay show <id>                      log + live output of a relay
   relay cancel <id>                    stop a relay and its running partner
@@ -127,6 +128,19 @@ async function main() {
       return out(pos[1] ? pos[1].split('.').reduce((o, k) => o?.[k], c) : c);
     }
 
+    case 'notify': {
+      const { notify, NOTIFY_CONFIG, readJSON, writeJSON } = await import('../src/core/util.mjs');
+      if (flags.discord !== undefined) {
+        const cfg = readJSON(NOTIFY_CONFIG, {});
+        if (flags.discord === true || flags.discord === 'off') delete cfg.discord_webhook;
+        else if (/^https:\/\/(discord|discordapp)\.com\/api\/webhooks\//.test(flags.discord)) cfg.discord_webhook = flags.discord;
+        else return console.log('✖ That doesn\'t look like a Discord webhook URL (https://discord.com/api/webhooks/…).');
+        writeJSON(NOTIFY_CONFIG, cfg);
+        console.log(cfg.discord_webhook ? 'Discord notifications on.' : 'Discord notifications off.');
+      }
+      notify('Relay test', 'If you can read this, Relay notifications work.');
+      return console.log('Sent a test notification. Check your Windows notifications (and Discord if you set a webhook).');
+    }
     case 'list':
       return console.log(listTickets().slice(0, 20).map(describeTicket).join('\n') || 'No relays.');
     case 'show':

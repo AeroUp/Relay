@@ -249,7 +249,10 @@ export function stepTicket(t) {
       cur.summary = truncate(r.answer || j?.error || '', 8000);
       if (r.session_id) cur.session_id = r.session_id;
       if (r.limited_until) t.limits[cur.agent] = r.limited_until;
-      if (r.transient) t.limits[cur.agent] = now + cfg.transient_retry_min * 60e3;
+      if (r.transient) {
+        t.limits[cur.agent] = now + cfg.transient_retry_min * 60e3;
+        cur.transient = true; // network/overload hiccup: retried later, doesn't count as a real attempt
+      }
       log(t, `■ ${label(cur.agent)} ${cur.kind} leg ended: ${cur.status}${r.limited_until ? ` (limited until ${fmtTime(r.limited_until)})` : ''}`);
       if (cur.kind === 'fallback' && cur.status === 'done') {
         t.fallback_done = true;
@@ -280,7 +283,8 @@ export function stepTicket(t) {
     }
   }
 
-  if (t.legs.length >= cfg.max_legs) {
+  const transientLegs = t.legs.filter((l) => l.transient).length;
+  if (t.legs.length - transientLegs >= cfg.max_legs || transientLegs >= 30) {
     t.state = 'failed';
     log(t, `stopped: ${cfg.max_legs} legs reached (relay.max_legs)`);
     return saveTicket(t);
