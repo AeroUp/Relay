@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Relay · live</title>
+<link rel="icon" href="/logo.png">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top">
+  <img src="/logo.png" alt="" class="logo" width="26" height="26">
+  <span class="brand">Relay</span>
+  <span class="pill" id="live-pill" hidden><i></i><span id="live-count"></span></span>
+  <span class="spacer"></span>
+  <span class="conn" id="conn" hidden>Can't reach Relay. Retrying…</span>
+</header>
+<div class="layout">
+  <aside class="side">
+    <h2>Relays</h2>
+    <nav id="relays" aria-label="Relays"></nav>
+  </aside>
+  <main>
+    <div class="empty" id="empty">
+      <img src="/logo.png" alt="" width="56" height="56">
+      <p><b>No relays yet.</b></p>
+      <p>When an agent hits its usage limit and another one takes over, you can watch it work here.</p>
+    </div>
+    <section id="relay" hidden>
+      <div class="r-head">
+        <div class="r-project" id="r-project"></div>
+        <h1 id="r-title"></h1>
+        <div class="r-meta" id="r-meta"></div>
+      </div>
+      <div class="legs" id="legs" role="tablist" aria-label="Turns"></div>
+      <div class="leg-bar" id="leg-bar"></div>
+      <div class="feed" id="feed" aria-live="polite"></div>
+      <div class="working" id="working" hidden><i></i><span id="working-text"></span></div>
+    </section>
+  </main>
+</div>
+<button class="jump" id="jump" hidden>Jump to latest</button>
+<script src="/app.js"></script>
+</body>
+</html>

@@ -14,6 +14,7 @@ import { loadConfig } from './core/config.mjs';
 import { LABEL, AGENTS, resolveAgent, depth } from './core/agents.mjs';
 import { limitedUntil, markLimited, parseResetTime, classifyFailure } from './core/limits.mjs';
 import { startJob, getJob, cancelJob, isTerminal } from './core/jobs.mjs';
+import { ensureViewer, watchLinks, viewerUrl, appLink, APP_NAME } from './live.mjs';
 
 const DIR = path.join(APP_HOME, 'tickets');
 const WAKER_PID = path.join(APP_HOME, 'waker.pid');
@@ -141,6 +142,18 @@ export function batonFromClaudeTranscript(transcriptPath, { cwd, sessionId, reas
 
 // ---- Tickets ----------------------------------------------------------------
 
+const oneLine = (s, n = 72) => {
+  const x = String(s || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return x.length > n ? `${x.slice(0, n - 1)}…` : x;
+};
+
+/** A short title for the task: the user's original request, else the baton's heading. */
+export function batonTitle(md) {
+  const m = String(md || '').match(/^## (?:Original request|Task)[^\n]*\n+(?:> )?([^\n]*\S[^\n]*)/m)
+    || String(md || '').match(/^# (?!Relay baton\b)(.+)$/m);
+  return m ? oneLine(m[1]) : null;
+}
+
 export function createTicket(fields) {
   const cfg = loadConfig();
   const t = {
@@ -157,6 +170,11 @@ export function createTicket(fields) {
     ...fields,
   };
   t.chain = (t.chain || []).filter((a) => a !== t.primary.agent && AGENTS.includes(a));
+  if (!t.title) {
+    let md = '';
+    try { md = fs.readFileSync(t.baton_path, 'utf8'); } catch {}
+    t.title = oneLine(t.task) || batonTitle(md) || path.basename(t.cwd);
+  }
   log(t, `created (${t.origin}) for ${label(t.primary.agent)} in ${t.cwd}`);
   return saveTicket(t);
 }
@@ -215,15 +233,29 @@ function resumePrompt(t) {
 function startLeg(t, agent, kind) {
   const prompt = kind === 'fallback' ? fallbackPrompt(t, agent) : resumePrompt(t);
   const session = kind === 'fallback' ? null : t.primary.session_id;
-  const job = startJob('ask', { agent, prompt, cwd: t.cwd, access: t.access, session_id: session, from: 'relay', timeout_sec: 4 * 3600 },
+  // Shown as the thread title in apps that list headless runs (the ChatGPT/Codex app).
+  const title = `Relay · ${path.basename(t.cwd)}: ${t.title || 'task'}`;
+  const job = startJob('ask', { agent, prompt, cwd: t.cwd, access: t.access, session_id: session, from: 'relay', timeout_sec: 4 * 3600, title },
     { title: `relay ${kind}: ${label(agent)}`, caller: 'relay' });
-  t.legs.push({ agent, kind, job_id: job.id, status: 'running', started_at: Date.now() });
+  const leg = { agent, kind, job_id: job.id, status: 'running', started_at: Date.now() };
+  t.legs.push(leg);
   log(t, `▶ ${kind} leg: ${label(agent)} (job ${job.id}, access ${t.access})`);
-  if (kind === 'fallback') {
-    notify('Relay', `${label(t.primary.agent)} is out of usage. ${label(agent)} is taking over in ${path.basename(t.cwd)}${t.limits[t.primary.agent] ? `; ${label(t.primary.agent)} returns ${fmtIn(t.limits[t.primary.agent])}` : ''}.`);
-  } else {
-    notify('Relay', `${label(agent)} is back${t.fallback_done ? ' and reviewing the handoff' : ''} in ${path.basename(t.cwd)}.`);
-  }
+  ensureViewer();
+  const back = t.limits[t.primary.agent];
+  const msg = kind === 'fallback'
+    ? back > Date.now()
+      ? `${label(t.primary.agent)} is out of usage. ${label(agent)} is taking over in ${path.basename(t.cwd)}; ${label(t.primary.agent)} returns ${fmtIn(back)}.`
+      : `${label(t.primary.agent)} handed ${path.basename(t.cwd)} to ${label(agent)}.`
+    : `${label(agent)} is back${t.fallback_done ? ' and reviewing the handoff' : ''} in ${path.basename(t.cwd)}.`;
+  // Codex reports its thread id a few seconds in; wait for it so the toast can open the thread.
+  if (APP_NAME[agent]) leg.announce = msg;
+  else notify('Relay', msg, watchLinks(t.id, leg));
+}
+
+function announceLeg(t, leg) {
+  if (!leg.announce) return;
+  notify('Relay', leg.announce, watchLinks(t.id, leg));
+  delete leg.announce;
 }
 
 /** Advance one ticket. Safe to call repeatedly. */
@@ -235,7 +267,9 @@ export function stepTicket(t) {
 
   if (cur?.status === 'running') {
     const j = getJob(cur.job_id);
+    if (j?.session_id && cur.session_id !== j.session_id) cur.session_id = j.session_id;
     if (j && !isTerminal(j)) {
+      if (cur.announce && (cur.session_id || now - cur.started_at > 45e3)) announceLeg(t, cur);
       if (cur.kind === 'fallback' && t.resume === 'after_reset' && cfg.on_reset === 'takeover' && primaryReady(t, now)) {
         cancelJob(cur.job_id);
         cur.status = 'preempted';
@@ -244,6 +278,7 @@ export function stepTicket(t) {
       } else return saveTicket(t);
     } else {
       const r = j?.result || {};
+      delete cur.announce; // it never got going, so don't announce a takeover that isn't happening
       cur.ended_at = now;
       cur.status = !j ? 'lost' : r.limited_until ? 'limited' : j.status;
       cur.summary = truncate(r.answer || j?.error || '', 8000);
@@ -257,14 +292,14 @@ export function stepTicket(t) {
       if (cur.kind === 'fallback' && cur.status === 'done') {
         t.fallback_done = true;
         appendBaton(t.baton_path, `Relay log: ${label(cur.agent)} finished its turn (${new Date().toLocaleString()})`, truncate(cur.summary, 3000));
-        notify('Relay', `${label(cur.agent)} finished its turn on ${path.basename(t.cwd)}.`);
+        notify('Relay', `${label(cur.agent)} finished its turn on ${path.basename(t.cwd)}.`, watchLinks(t.id, cur));
       }
       if (cur.kind !== 'fallback') {
         if (r.session_id) t.primary.session_id = r.session_id;
         if (cur.status === 'done') {
           t.state = 'done';
           log(t, `✔ ${label(t.primary.agent)} finished the task`);
-          notify('Relay', `${label(t.primary.agent)} finished the task in ${path.basename(t.cwd)}.`);
+          notify('Relay', `${label(t.primary.agent)} finished the task in ${path.basename(t.cwd)}.`, watchLinks(t.id, cur));
           return saveTicket(t);
         }
         if (cur.status === 'failed' && !r.limited_until && !r.transient) {
@@ -416,8 +451,9 @@ export function onStopFailure(input) {
   stepTicket(t);
   ensureWaker();
   const fb = getTicket(t.id).legs.find((l) => l.kind === 'fallback');
+  const watch = cfg.viewer_port ? ` Watch it live: ${viewerUrl(t.id)}` : '';
   const msg = fb
-    ? `Relay: Claude hit its limit. ${label(fb.agent)} is continuing this task now; Claude resumes ${fmtIn(until + cfg.resume_buffer_sec * 1000)} to review it. (relay ${t.id})`
+    ? `Relay: Claude hit its limit. ${label(fb.agent)} is continuing this task now; Claude resumes ${fmtIn(until + cfg.resume_buffer_sec * 1000)} to review it. (relay ${t.id})${watch}`
     : `Relay: Claude will resume this task automatically ${fmtIn(until + cfg.resume_buffer_sec * 1000)}. (relay ${t.id})`;
   if (!fb) notify('Relay', msg.replace('Relay: ', ''));
   return { systemMessage: msg };
@@ -442,7 +478,8 @@ export function onUserPrompt(input) {
     t.resume = 'on_next_message';
     t.fallback_first = true;
     ctx = `[Relay] While you were rate-limited, ${label(running.agent)} has been working on this task in the background (job ${running.job_id}, started ${fmtTime(running.started_at)}). `
-      + `Its notes go in ${t.baton_path}. Avoid editing the same files until it finishes; check or cancel it with the relay "relays" tool (id ${t.id}).`;
+      + `Its notes go in ${t.baton_path}. Avoid editing the same files until it finishes; check or cancel it with the relay "relays" tool (id ${t.id}).`
+      + (loadConfig().viewer_port ? ` The user can watch it live at ${viewerUrl(t.id)} (open it in the in-app browser if you have one).` : '');
   } else {
     const prior = reportsSoFar(t);
     ctx = prior
@@ -474,6 +511,16 @@ export function resumeNow(id) {
   saveTicket(t);
   ensureWaker();
   return stepTicket(t);
+}
+
+/** Where to watch a relay: the live viewer, plus the agent's own app for legs that have one. */
+export function ticketLinks(t) {
+  const lines = loadConfig().viewer_port ? [`Watch live: ${viewerUrl(t.id)}  (or: relay watch ${t.id})`] : [];
+  for (const l of t.legs) {
+    const link = appLink({ ...l, session_id: l.session_id || getJob(l.job_id)?.session_id });
+    if (link) lines.push(`${label(l.agent)} ${l.kind} leg in the ${APP_NAME[l.agent]} app: ${link}`);
+  }
+  return lines.join('\n');
 }
 
 export function describeTicket(t) {

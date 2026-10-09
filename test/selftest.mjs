@@ -90,6 +90,52 @@ export async function selftest() {
     assert.match(md, /\/p\/src\/parse\.js/);
     assert.doesNotMatch(md, /subagent noise/);
   });
+  await t('live viewer: shell commands shown the way the agent wrote them', async () => {
+    const { _test: v } = await import('../src/viewer.mjs');
+    assert.equal(v.unwrapShell(`"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe" -NoProfile -Command "Get-Content .relay\\\\baton.md; rg -g '"'!.git'"'"`),
+      "Get-Content .relay\\baton.md; rg -g '!.git'");
+    assert.equal(v.unwrapShell(`"C:\\\\x\\\\powershell.exe" -Command 'node a.js; echo ''hi'''`), "node a.js; echo 'hi'");
+    assert.equal(v.unwrapShell(`/bin/bash -lc 'npm test'`), 'npm test');
+    assert.equal(v.unwrapShell('git status'), 'git status');
+  });
+  await t('live viewer: Codex and Claude events become feed items', async () => {
+    const { _test: v } = await import('../src/viewer.mjs');
+    const cx = v.normalizer('codex', 'C:\\p');
+    const feed = [
+      { type: 'thread.started', thread_id: 'th-1' },
+      { type: 'item.completed', item: { id: 'item_0', type: 'agent_message', text: 'On it.' } },
+      { type: 'item.started', item: { id: 'item_1', type: 'command_execution', command: 'bash -lc "ls"', aggregated_output: '', exit_code: null, status: 'in_progress' } },
+      { type: 'item.completed', item: { id: 'item_1', type: 'command_execution', command: 'bash -lc "ls"', aggregated_output: 'a.js', exit_code: 0, status: 'completed' } },
+      { type: 'item.completed', item: { id: 'item_2', type: 'file_change', changes: [{ path: 'C:\\p\\src\\a.js', kind: 'update' }], status: 'completed' } },
+      { type: 'turn.completed', usage: { input_tokens: 1000, output_tokens: 50 } },
+    ].flatMap((e) => cx(JSON.stringify(e)));
+    assert.deepEqual(feed.map((i) => i.kind), ['note', 'msg', 'cmd', 'cmd', 'edit', 'end']);
+    assert.equal(feed[0].session, 'th-1');
+    assert.equal(feed[3].status, 'ok');
+    assert.equal(feed[3].command, 'ls');
+    assert.equal(feed[4].files[0].path, 'src/a.js');
+    const cl = v.normalizer('claude', '/p');
+    const items = [
+      { type: 'assistant', message: { content: [{ type: 'text', text: 'Looking.' }, { type: 'tool_use', id: 'tu1', name: 'Bash', input: { command: 'npm test' } }] } },
+      { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'tu1', content: 'ok', is_error: false }] } },
+      { type: 'result', subtype: 'success', result: 'Done.', num_turns: 3 },
+    ].flatMap((e) => cl(JSON.stringify(e)));
+    assert.deepEqual(items.map((i) => i.kind ?? 'patch'), ['msg', 'cmd', 'patch', 'end']);
+    assert.equal(items[2].key, 'tu1');
+    assert.equal(items[2].status, 'ok');
+  });
+  await t('notifications: toast buttons are escaped XML', async () => {
+    const { toastXml } = await import('../src/core/util.mjs');
+    const x = toastXml('Relay', 'a <b> & "c"', { url: 'http://127.0.0.1:7575/#r', actions: [{ label: 'Open in ChatGPT', url: 'codex://threads/abc' }] });
+    assert.match(x, /launch="http:\/\/127\.0\.0\.1:7575\/#r"/);
+    assert.match(x, /<action content="Open in ChatGPT" activationType="protocol" arguments="codex:\/\/threads\/abc"\/>/);
+    assert.match(x, /a &lt;b&gt; &amp; &quot;c&quot;/);
+  });
+  await t('relay titles come from the original request', async () => {
+    const { batonTitle } = await import('../src/relay.mjs');
+    assert.equal(batonTitle('# Relay baton — x\n\n## Original request\nmake the   overlay pop up\n'), 'make the overlay pop up');
+    assert.equal(batonTitle('# Ship the login page\n\nnotes'), 'Ship the login page');
+  });
   await t('MCP: handshake, tools/list, status tool', async () => {
     const c = mcpClient();
     try {

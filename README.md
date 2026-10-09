@@ -99,14 +99,27 @@ The config points at the folder you installed from, so keep the clone where it i
 relay run "add dark mode to the settings page" --chain claude,codex,antigravity --cwd ~/my-app --wait
 ```
 
+## Watch it live
+
+Every relay streams what the partner is doing: its messages, the commands it runs with their output, files it edits, its plan and its final report.
+
+- **Live viewer.** `relay watch` opens it in your browser. The takeover notification has a **Watch live** button, and when Claude hits its limit, the message Relay leaves in the chat includes the link. In the Claude desktop app you can keep it open in the Browser pane next to your chat. It works for every agent.
+- **Codex turns in the ChatGPT app.** When Codex takes over, the notification also has an **Open in ChatGPT** button (or run `relay open`). It opens Codex's thread in the ChatGPT/Codex desktop app, with every step and the final report. The app shows the thread as of when you opened it, so reopen it to refresh. The live viewer updates on its own.
+- **On your phone.** The viewer only listens on this PC (`127.0.0.1`). To watch from your phone over Tailscale, run `relay config set viewer_host <your PC's Tailscale IP>`. With a [Discord webhook](#commands) set, the Discord notifications then link to it too.
+
+Headless Claude runs don't show up in the Claude app's session list. Use the live viewer for those, or the viewer's **Copy resume command** to open the session in a terminal.
+
 ## Commands
 
 ```bash
+relay watch [id]             # live viewer in your browser
+relay open [id]              # open the current turn in its agent's app (Codex → ChatGPT app)
 relay doctor                 # agents, usage limits (Codex shows exact %), waker, relays
 relay list                   # recent relays
 relay show <id>              # a relay's log + its partner's live output
 relay now <id>               # wake the primary agent right away
 relay cancel <id>            # stop a relay and its running partner
+relay notify --discord <url> # also send notifications to a Discord webhook (reaches your phone)
 relay handoff codex --baton notes.md --task "…" --resume after_handoff
 relay config set fallback_chain '["codex","antigravity"]'
 ```
@@ -129,6 +142,8 @@ MCP tools: `status`, `handoff`, `relays`.
 | `resume_buffer_sec` | `90` | Wait this long after the reset before resuming |
 | `transient_retry_min` | `4` | Retry delay for plain 429 / overloaded errors (no handoff) |
 | `max_legs` | `8` | Max agent runs per relay |
+| `viewer_port` | `7575` | Port for the live viewer. `0` turns it off |
+| `viewer_host` | `"127.0.0.1"` | Where the viewer listens. Set it to your Tailscale IP to watch from your phone |
 
 ## Safety
 

@@ -3,14 +3,15 @@
 // and the first one wakes up to finish when its limit resets.
 import fs from 'node:fs';
 import path from 'node:path';
-import { VERSION, APP_HOME, fmtTime, fmtIn } from '../src/core/util.mjs';
+import { VERSION, APP_HOME, fmtTime, fmtIn, openUrl } from '../src/core/util.mjs';
 import { loadConfig, setConfigValue, CONFIG_PATH } from '../src/core/config.mjs';
 import { LABEL, agentVersion } from '../src/core/agents.mjs';
 import { runJobProcess, readJobLog } from '../src/core/jobs.mjs';
 import { OPS, status, autopilot, handoff } from '../src/ops.mjs';
 import {
-  wakerLoop, onStopFailure, onSessionStart, onUserPrompt, listTickets, describeTicket, cancelTicket, resumeNow, getTicket,
+  wakerLoop, onStopFailure, onSessionStart, onUserPrompt, listTickets, describeTicket, cancelTicket, resumeNow, getTicket, ticketLinks,
 } from '../src/relay.mjs';
+import { ensureViewer, viewerUrl, appLink, APP_NAME } from '../src/live.mjs';
 
 function parseArgs(argv) {
   const pos = [];
@@ -40,7 +41,7 @@ async function readStdin() {
 
 function showTicket(t) {
   if (!t) return console.log('No such relay.');
-  console.log(`${describeTicket(t)}\nBaton: ${t.baton_path}\n\n${(t.log || []).join('\n')}`);
+  console.log(`${describeTicket(t)}\nBaton: ${t.baton_path}\n${ticketLinks(t)}\n\n${(t.log || []).join('\n')}`);
   const running = t.legs.find((l) => l.status === 'running');
   if (running) console.log(`\nLive output (${LABEL[running.agent]}):\n${readJobLog(running.job_id, 2500)}`);
 }
@@ -57,13 +58,15 @@ Relays
   relay notify [--discord <webhook>|off] send a test notification (optionally via a Discord webhook)
   relay list                           recent relays
   relay show <id>                      log + live output of a relay
+  relay watch [id] [--no-open]         watch relays live in your browser (any agent)
+  relay open [id]                      open the current turn in its agent's app (Codex → ChatGPT app)
   relay cancel <id>                    stop a relay and its running partner
   relay now <id>                       wake the primary agent right away
   relay handoff <claude|codex|antigravity|auto> --baton notes.md [--task "..."] [--cwd .]
                [--resume after_reset|after_handoff|on_next_message|never] [--reset-at "3pm"] [--from claude]
   relay run "task" [--chain claude,codex,antigravity] [--access write] [--cwd .] [--wait]
 
-Internal: mcp, waker [--once], hook <stop-failure|session-start|user-prompt>, _job <id>, selftest`;
+Internal: mcp, waker [--once], _viewer, hook <stop-failure|session-start|user-prompt>, _job <id>, selftest`;
 
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
@@ -80,6 +83,10 @@ async function main() {
       return runJobProcess(pos[0], OPS);
     case 'waker':
       return wakerLoop({ once: !!flags.once });
+    case '_viewer': {
+      const { serveViewer } = await import('../src/viewer.mjs');
+      return serveViewer();
+    }
     case 'hook': {
       let input = {};
       try { input = JSON.parse((await readStdin()) || '{}'); } catch {}
@@ -140,6 +147,32 @@ async function main() {
       }
       notify('Relay test', 'If you can read this, Relay notifications work.');
       return console.log('Sent a test notification. Check your Windows notifications (and Discord if you set a webhook).');
+    }
+    case 'watch': {
+      if (!loadConfig().viewer_port) return console.log('The live viewer is off (viewer_port is 0). Turn it on with: relay config set viewer_port 7575');
+      const url = viewerUrl(pos[0] || listTickets({ active: true })[0]?.id || '');
+      ensureViewer();
+      let up = false;
+      for (let i = 0; i < 20 && !up; i++) {
+        up = await fetch(new URL('/api/ping', url), { signal: AbortSignal.timeout(500) }).then((r) => r.ok, () => false);
+        if (!up) await new Promise((res) => setTimeout(res, 250));
+      }
+      if (!up) return console.log(`✖ The viewer didn't start. See ${path.join(APP_HOME, 'viewer.log')}`);
+      if (!flags['no-open']) openUrl(url);
+      return console.log(`Relay live viewer: ${url}`);
+    }
+    case 'open': {
+      const t = pos[0] ? getTicket(pos[0]) : listTickets({ active: true })[0] || listTickets()[0];
+      if (!t) return console.log('No relays yet.');
+      const withLink = t.legs.map((l) => ({ ...l, link: appLink(l) })).filter((l) => l.link);
+      const leg = withLink.find((l) => l.status === 'running') || withLink.at(-1);
+      if (leg) {
+        openUrl(leg.link);
+        return console.log(`Opened ${LABEL[leg.agent]}'s ${leg.kind} turn in the ${APP_NAME[leg.agent]} app.`);
+      }
+      ensureViewer();
+      openUrl(viewerUrl(t.id));
+      return console.log(`This relay has no turn an agent app can open, so here's the live viewer: ${viewerUrl(t.id)}`);
     }
     case 'list':
       return console.log(listTickets().slice(0, 20).map(describeTicket).join('\n') || 'No relays.');

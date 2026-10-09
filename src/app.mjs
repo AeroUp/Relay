@@ -31,4 +31,8 @@ export const DEFAULTS = {
   // Plain 429 / overloaded errors: retry the same agent after this many minutes.
   transient_retry_min: 4,
   max_legs: 8,
+  // Live viewer (relay watch). 0 turns it off. viewer_host "127.0.0.1" keeps it on this PC;
+  // set it to your Tailscale IP to watch from your phone.
+  viewer_port: 7575,
+  viewer_host: '127.0.0.1',
 };

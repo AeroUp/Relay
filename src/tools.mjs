@@ -1,7 +1,7 @@
 // Relay's MCP tools.
 import { fmtTime, fmtIn } from './core/util.mjs';
 import { LABEL } from './core/agents.mjs';
-import { getTicket, cancelTicket, resumeNow, describeTicket } from './relay.mjs';
+import { getTicket, cancelTicket, resumeNow, describeTicket, ticketLinks } from './relay.mjs';
 import { handoff, status, detectCaller } from './ops.mjs';
 
 const AGENT_ENUM = ['claude', 'codex', 'antigravity'];
@@ -61,7 +61,7 @@ export async function call(name, a) {
   if (name === 'relays') {
     if (!a.id) return `Relays:\n${status().relays.map((x) => `- ${x}`).join('\n') || '- none'}`;
     const t = a.action === 'cancel' ? cancelTicket(a.id) : a.action === 'resume_now' ? resumeNow(a.id) : getTicket(a.id);
-    return t ? `${describeTicket(t)}\nBaton: ${t.baton_path}\n\n${(t.log || []).slice(-15).join('\n')}` : 'No such relay.';
+    return t ? `${describeTicket(t)}\nBaton: ${t.baton_path}\n${ticketLinks(t)}\n\n${(t.log || []).slice(-15).join('\n')}` : 'No such relay.';
   }
   throw new Error(`Unknown tool: ${name}`);
 }

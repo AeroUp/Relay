@@ -34,8 +34,8 @@ export async function ask(p, ctx = {}) {
   const release = acquireSlot();
   try {
     return await runAgent(agent, {
-      prompt: p.prompt, cwd: p.cwd, access: p.access || 'write', session: p.session_id, timeoutSec: p.timeout_sec,
-      caller: 'Relay', log: ctx.log, signal: ctx.signal, onSpawn: ctx.onSpawn,
+      prompt: p.prompt, cwd: p.cwd, access: p.access || 'write', session: p.session_id, timeoutSec: p.timeout_sec, title: p.title,
+      caller: 'Relay', log: ctx.log, signal: ctx.signal, onSpawn: ctx.onSpawn, events: ctx.events, onSession: ctx.onSession,
     });
   } finally {
     release();
