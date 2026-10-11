@@ -1,9 +1,23 @@
 // Ways to watch a relay while it runs: the local live viewer (every agent), and the
 // agent's own desktop app when it can show headless runs (Codex threads open in the
 // ChatGPT/Codex app through codex://threads/<id>).
+import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { APP_HOME, readJSON, pidAlive, spawnDetached } from './core/util.mjs';
 import { loadConfig } from './core/config.mjs';
+
+/** Changes whenever Relay's code is updated, so long-running processes can restart onto it. */
+export function codeStamp() {
+  const src = path.dirname(fileURLToPath(import.meta.url));
+  let latest = 0;
+  for (const dir of [src, path.join(src, 'core')]) {
+    try {
+      for (const f of fs.readdirSync(dir)) if (f.endsWith('.mjs')) latest = Math.max(latest, fs.statSync(path.join(dir, f)).mtimeMs);
+    } catch {}
+  }
+  return latest;
+}
 
 export const VIEWER_PID = path.join(APP_HOME, 'viewer.pid');
 

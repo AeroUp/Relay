@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseResetTime, classifyFailure } from '../src/core/limits.mjs';
 import { batonFromClaudeTranscript, accessFromPermissionMode } from '../src/relay.mjs';
+import { resolveClaudeDesktopCwd } from '../src/core/util.mjs';
 
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'relay.mjs');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-selftest-'));
@@ -71,12 +72,24 @@ export async function selftest() {
     assert.equal(accessFromPermissionMode('acceptEdits'), 'write');
     assert.equal(accessFromPermissionMode('plan'), 'read');
   });
+  await t('Claude Desktop virtual workspace resolves only to an existing Claude package', () => {
+    const home = 'C:\\Users\\tester';
+    const virtual = `${home}\\AppData\\Roaming\\Claude\\scratch-workspaces\\project`;
+    const physical = `${home}\\AppData\\Local\\Packages\\Claude_test\\LocalCache\\Roaming\\Claude\\scratch-workspaces\\project`;
+    const options = { home, packages: ['Other_test', 'Claude_test'], exists: (p) => p === physical };
+    assert.equal(resolveClaudeDesktopCwd(virtual, options), physical);
+    assert.equal(resolveClaudeDesktopCwd('C:\\projects\\example', options), 'C:\\projects\\example');
+    assert.equal(resolveClaudeDesktopCwd(virtual, { ...options, exists: () => false }), virtual);
+  });
   await t('baton from a Claude Code transcript', () => {
     const file = path.join(TMP, 'transcript.jsonl');
     const lines = [
       { type: 'user', message: { role: 'user', content: 'Build a CLI that converts CSV to JSON' } },
       { type: 'assistant', message: { content: [{ type: 'text', text: 'Starting with the parser.' }, { type: 'tool_use', name: 'Write', input: { file_path: '/p/src/parse.js' } }] } },
       { type: 'attachment', attachment: { type: 'queued_command', prompt: 'also support TSV', origin: { kind: 'human' } } },
+      { type: 'attachment', attachment: { type: 'queued_command', prompt: [{ type: 'text', text: 'include JSON Lines output' }, { type: 'image', source: {} }], origin: { kind: 'human' } } },
+      { type: 'attachment', attachment: { type: 'queued_command', prompt: { malformed: true }, origin: { kind: 'human' } } },
+      { type: 'assistant', message: { content: 'The CSV parser is complete.' } },
       { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'TodoWrite', input: { todos: [{ content: 'parser', status: 'completed' }, { content: 'TSV', status: 'pending' }] } }] } },
       { type: 'user', message: { content: [{ type: 'tool_result', content: 'ok' }] } },
       { type: 'user', isSidechain: true, message: { content: 'subagent noise' } },
@@ -85,6 +98,8 @@ export async function selftest() {
     const md = batonFromClaudeTranscript(file, { cwd: '/p', sessionId: 'abc', reason: 'usage limit' });
     assert.match(md, /## Original request\nBuild a CLI that converts CSV to JSON/);
     assert.match(md, /also support TSV/);
+    assert.match(md, /include JSON Lines output/);
+    assert.match(md, /The CSV parser is complete/);
     assert.match(md, /- \[x\] parser/);
     assert.match(md, /- \[ \] TSV/);
     assert.match(md, /\/p\/src\/parse\.js/);

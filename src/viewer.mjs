@@ -12,7 +12,7 @@ import { APP_HOME, VERSION, writeJSON, readJSON, appendLog } from './core/util.m
 import { loadConfig } from './core/config.mjs';
 import { getJob, jobEvents, isTerminal } from './core/jobs.mjs';
 import { listTickets, getTicket } from './relay.mjs';
-import { VIEWER_PID, appLink, APP_NAME } from './live.mjs';
+import { VIEWER_PID, appLink, APP_NAME, codeStamp } from './live.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LOG = path.join(APP_HOME, 'viewer.log');
@@ -331,12 +331,15 @@ export async function serveViewer() {
     appendLog(LOG, `viewer on http://${host}:${cfg.viewer_port} (pid ${process.pid})`);
   });
   // Stay up while relays are active or someone is watching; otherwise exit after 20 idle minutes.
+  const stamp = codeStamp();
   setInterval(() => {
     const busy = clients > 0 || listTickets({ active: true }).length > 0;
     if (busy) lastHit = Date.now();
-    if (Date.now() - lastHit > 20 * 60e3) {
+    // Relay was updated: step aside once nobody is watching; the waker or `relay watch` restarts it.
+    const updated = codeStamp() !== stamp && clients === 0;
+    if (updated || Date.now() - lastHit > 20 * 60e3) {
       try { if (readJSON(VIEWER_PID)?.pid === process.pid) fs.unlinkSync(VIEWER_PID); } catch {}
-      appendLog(LOG, 'viewer idle, exiting');
+      appendLog(LOG, updated ? 'Relay was updated; viewer exiting so a fresh one starts' : 'viewer idle, exiting');
       process.exit(0);
     }
   }, 60e3).unref?.();

@@ -8,13 +8,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   APP_HOME, ensureDir, readJSON, writeJSON, newId, pidAlive, spawnDetached, sleep, truncate,
-  fmtTime, fmtIn, notify, event, gitInfo, appendLog,
+  fmtTime, fmtIn, notify, openUrl, event, gitInfo, appendLog,
+  resolveClaudeDesktopCwd,
 } from './core/util.mjs';
 import { loadConfig } from './core/config.mjs';
 import { LABEL, AGENTS, resolveAgent, depth } from './core/agents.mjs';
 import { limitedUntil, markLimited, parseResetTime, classifyFailure } from './core/limits.mjs';
 import { startJob, getJob, cancelJob, isTerminal } from './core/jobs.mjs';
-import { ensureViewer, watchLinks, viewerUrl, appLink, APP_NAME } from './live.mjs';
+import { ensureViewer, watchLinks, viewerUrl, appLink, APP_NAME, codeStamp } from './live.mjs';
 
 const DIR = path.join(APP_HOME, 'tickets');
 const WAKER_PID = path.join(APP_HOME, 'waker.pid');
@@ -79,7 +80,7 @@ export function appendBaton(file, title, body) {
 function textOf(content) {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
-  return content.filter((c) => c.type === 'text').map((c) => c.text).join('\n');
+  return content.filter((c) => c?.type === 'text' && typeof c.text === 'string').map((c) => c.text).join('\n');
 }
 
 const isNoise = (s) => !s.trim() || /^<(command-|local-command|system-reminder|bash-|task-notification)/.test(s.trim()) || s.startsWith('Caveat:');
@@ -102,10 +103,14 @@ export function batonFromClaudeTranscript(transcriptPath, { cwd, sessionId, reas
       const t = textOf(j.message?.content);
       if (t && !isNoise(t)) users.push(t);
     } else if (j.type === 'attachment' && j.attachment?.type === 'queued_command' && j.attachment.origin?.kind === 'human') {
-      if (j.attachment.prompt && !isNoise(j.attachment.prompt)) users.push(j.attachment.prompt);
+      const prompt = textOf(j.attachment.prompt);
+      if (prompt && !isNoise(prompt)) users.push(prompt);
     } else if (j.type === 'assistant') {
-      for (const c of j.message?.content || []) {
-        if (c.type === 'text' && c.text?.trim()) assistant.push(c.text.trim());
+      const content = j.message?.content;
+      if (typeof content === 'string' && content.trim()) assistant.push(content.trim());
+      for (const c of Array.isArray(content) ? content : []) {
+        if (!c) continue;
+        if (c.type === 'text' && typeof c.text === 'string' && c.text.trim()) assistant.push(c.text.trim());
         if (c.type !== 'tool_use') continue;
         const inp = c.input || {};
         if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(c.name) && inp.file_path) files.set(inp.file_path, c.name);
@@ -247,15 +252,21 @@ function startLeg(t, agent, kind) {
       ? `${label(t.primary.agent)} is out of usage. ${label(agent)} is taking over in ${path.basename(t.cwd)}; ${label(t.primary.agent)} returns ${fmtIn(back)}.`
       : `${label(t.primary.agent)} handed ${path.basename(t.cwd)} to ${label(agent)}.`
     : `${label(agent)} is back${t.fallback_done ? ' and reviewing the handoff' : ''} in ${path.basename(t.cwd)}.`;
-  // Codex reports its thread id a few seconds in; wait for it so the toast can open the thread.
-  if (APP_NAME[agent]) leg.announce = msg;
-  else notify('Relay', msg, watchLinks(t.id, leg));
+  // Announced on the next waker step, once the agent is actually running: by then the viewer
+  // is listening and Codex has reported the thread id the toast links to.
+  leg.announce = msg;
 }
 
 function announceLeg(t, leg) {
   if (!leg.announce) return;
   notify('Relay', leg.announce, watchLinks(t.id, leg));
   delete leg.announce;
+  // Pop the live viewer open the first time someone takes over, so you can see it happen.
+  const cfg = loadConfig();
+  if (leg.kind === 'fallback' && cfg.viewer_port && cfg.viewer_auto_open && !t.viewer_opened) {
+    t.viewer_opened = true;
+    openUrl(viewerUrl(t.id));
+  }
 }
 
 /** Advance one ticket. Safe to call repeatedly. */
@@ -269,7 +280,7 @@ export function stepTicket(t) {
     const j = getJob(cur.job_id);
     if (j?.session_id && cur.session_id !== j.session_id) cur.session_id = j.session_id;
     if (j && !isTerminal(j)) {
-      if (cur.announce && (cur.session_id || now - cur.started_at > 45e3)) announceLeg(t, cur);
+      if (cur.announce && now - cur.started_at > 4000 && (cur.session_id || now - cur.started_at > 45e3)) announceLeg(t, cur);
       if (cur.kind === 'fallback' && t.resume === 'after_reset' && cfg.on_reset === 'takeover' && primaryReady(t, now)) {
         cancelJob(cur.job_id);
         cur.status = 'preempted';
@@ -283,7 +294,8 @@ export function stepTicket(t) {
       cur.status = !j ? 'lost' : r.limited_until ? 'limited' : j.status;
       cur.summary = truncate(r.answer || j?.error || '', 8000);
       if (r.session_id) cur.session_id = r.session_id;
-      if (r.limited_until) t.limits[cur.agent] = r.limited_until;
+      // Reset times are often to the minute ("try again at 10:04"), so leave a minute's slack.
+      if (r.limited_until) t.limits[cur.agent] = Math.max(r.limited_until, now) + 60e3;
       if (r.transient) {
         t.limits[cur.agent] = now + cfg.transient_retry_min * 60e3;
         cur.transient = true; // network/overload hiccup: retried later, doesn't count as a real attempt
@@ -318,7 +330,8 @@ export function stepTicket(t) {
     }
   }
 
-  const transientLegs = t.legs.filter((l) => l.transient).length;
+  // Hiccups and "out of usage, try later" don't count as real attempts.
+  const transientLegs = t.legs.filter((l) => l.transient || l.status === 'limited').length;
   if (t.legs.length - transientLegs >= cfg.max_legs || transientLegs >= 30) {
     t.state = 'failed';
     log(t, `stopped: ${cfg.max_legs} legs reached (relay.max_legs)`);
@@ -328,19 +341,36 @@ export function stepTicket(t) {
   const ready = primaryReady(t, now);
   const wantFallback = !t.fallback_done && t.allow_fallback !== false && (t.origin === 'handoff' || cfg.auto_fallback)
     && (t.fallback_first || !ready);
+  let fallbackPending = false;
   if (wantFallback) {
-    const fails = (a) => t.legs.filter((l) => l.agent === a && l.kind === 'fallback' && l.status !== 'done').length;
-    const next = t.chain.find((a) => resolveAgent(a) && !limitedUntil(a) && now >= (t.limits[a] || 0) && fails(a) < 2);
+    // Running out of usage isn't a failure: that partner is tried again once it's back.
+    const fails = (a) => t.legs.filter((l) => l.agent === a && l.kind === 'fallback' && !['done', 'limited'].includes(l.status) && !l.transient).length;
+    const usable = t.chain.filter((a) => resolveAgent(a) && fails(a) < 2);
+    const backAt = (a) => Math.max(t.limits[a] || 0, limitedUntil(a) || 0);
+    const next = usable.find((a) => backAt(a) <= now);
     if (next) {
       startLeg(t, next, 'fallback');
       return saveTicket(t);
+    }
+    // Everyone who could take over is out of usage too. Say so once, then wait for the first one back.
+    const waiting = usable.filter((a) => backAt(a) > now).sort((a, b) => backAt(a) - backAt(b));
+    fallbackPending = waiting.length > 0;
+    if (fallbackPending && !t.waiting_notified) {
+      t.waiting_notified = true;
+      const w = waiting[0];
+      const p = t.primary.agent;
+      const msg = t.limits[p] > now
+        ? `${label(p)} and ${label(w)} are both out of usage. Relay will continue ${path.basename(t.cwd)} when the first one is back (${label(w)} at ${fmtTime(backAt(w))}, ${label(p)} at ${fmtTime(t.limits[p])}).`
+        : `${label(w)} is out of usage until ${fmtTime(backAt(w))}. Relay will hand ${path.basename(t.cwd)} to it then.`;
+      log(t, `waiting: ${waiting.map((a) => `${label(a)} back ${fmtTime(backAt(a))}`).join(', ')}`);
+      notify('Relay', msg, watchLinks(t.id));
     }
   }
 
   if (ready) {
     const fallbackOwns = cfg.on_reset === 'none' && t.origin === 'hook' && t.fallback_done;
     if (t.resume === 'never' || fallbackOwns || (t.resume === 'on_next_message' && t.fallback_done)) {
-      if (t.resume === 'never' || fallbackOwns || now - t.created_at > 24 * 3600e3) {
+      if ((t.resume === 'never' && !fallbackPending) || fallbackOwns || now - t.created_at > 24 * 3600e3) {
         t.state = 'done';
         log(t, 'done (primary not resumed by request)');
       }
@@ -376,6 +406,7 @@ export async function wakerLoop({ once = false } = {}) {
   if (other && other.pid !== process.pid && !once) return;
   if (!once) writeJSON(WAKER_PID, { pid: process.pid, started: Date.now() });
   appendLog(WAKER_LOG, `waker ${once ? 'single pass' : `started (pid ${process.pid})`}`);
+  const stamp = codeStamp();
   let idle = 0;
   for (;;) {
     const active = listTickets({ active: true });
@@ -384,6 +415,13 @@ export async function wakerLoop({ once = false } = {}) {
     }
     if (once) return;
     if (readJSON(WAKER_PID)?.pid !== process.pid) return; // replaced by another waker
+    if (codeStamp() !== stamp) { // Relay was updated: hand over to a waker running the new code
+      appendLog(WAKER_LOG, 'Relay was updated; restarting the waker');
+      try { fs.unlinkSync(WAKER_PID); } catch {}
+      ensureWaker();
+      return;
+    }
+    if (active.length) ensureViewer(); // keep "Watch live" links working while relays run
     idle = active.length ? 0 : idle + 1;
     if (idle >= 8) break;
     await sleep(15000);
@@ -412,7 +450,7 @@ export function onStopFailure(input) {
   if (!until) until = now + (kind === 'limit' ? cfg.unknown_reset_retry_min : cfg.transient_retry_min) * 60e3;
   if (kind === 'limit') markLimited('claude', until, text);
 
-  const cwd = input.cwd || process.cwd();
+  const cwd = resolveClaudeDesktopCwd(input.cwd || process.cwd());
   const existing = listTickets({ active: true }).find((t) => t.primary.agent === 'claude' && t.primary.session_id === input.session_id);
   if (existing) {
     existing.limits.claude = until;
@@ -433,7 +471,8 @@ export function onStopFailure(input) {
       const sections = old.split(/\n(?=## )/).filter((s) => /^## (Report from|Relay log)/.test(s));
       if (sections.length) carried = `\n\n## Earlier reports from other agents\n${sections.join('\n').replace(/^## /gm, '### ')}`;
     } catch {}
-    const md = batonFromClaudeTranscript(input.transcript_path, { cwd, sessionId: input.session_id, reason }) + carried;
+    const mapping = cwd !== input.cwd ? `\n\n## Claude Desktop workspace path\nClaude's virtual workspace \`${input.cwd}\` maps to the physical workspace \`${cwd}\`. Use the physical path for files and commands referring to the virtual workspace.\n` : '';
+    const md = batonFromClaudeTranscript(input.transcript_path, { cwd, sessionId: input.session_id, reason }) + mapping + carried;
     batonPath = writeBaton(cwd, md, { from: 'claude', reason });
   } catch (e) {
     batonPath = writeBaton(APP_HOME, `# Relay baton\nCould not read transcript: ${e.message}`, { from: 'claude' });

@@ -35,4 +35,6 @@ export const DEFAULTS = {
   // set it to your Tailscale IP to watch from your phone.
   viewer_port: 7575,
   viewer_host: '127.0.0.1',
+  // Open the live viewer in your browser when another agent takes over.
+  viewer_auto_open: true,
 };

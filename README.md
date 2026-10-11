@@ -33,7 +33,7 @@ Codex picks up the baton ──► keeps working on the task in the background
                          Claude reviews the diff, fixes what's wrong, finishes the task
 ```
 
-You get a desktop notification at each step. If Codex runs out too, the next agent in the chain takes over. If you come back to the chat before the reset, Relay adds Codex's progress to your next message instead.
+You get a desktop notification at each step, and the live viewer opens so you can watch the partner work. If Codex runs out too, the next agent in the chain takes over. If every partner is out of usage, Relay tells you when the first one is back and hands over then. If you come back to the chat before the reset, Relay adds Codex's progress to your next message instead.
 
 Works with **Claude Code, Codex and Antigravity** (the IDE and the `agy` CLI), using your existing logins and subscriptions. You don't need API keys.
 
@@ -103,7 +103,7 @@ relay run "add dark mode to the settings page" --chain claude,codex,antigravity 
 
 Every relay streams what the partner is doing: its messages, the commands it runs with their output, files it edits, its plan and its final report.
 
-- **Live viewer.** `relay watch` opens it in your browser. The takeover notification has a **Watch live** button, and when Claude hits its limit, the message Relay leaves in the chat includes the link. In the Claude desktop app you can keep it open in the Browser pane next to your chat. It works for every agent.
+- **Live viewer.** It opens in your browser by itself when a partner takes over (turn that off with `relay config set viewer_auto_open false`), and `relay watch` opens it any time. The takeover notification has a **Watch live** button, and when Claude hits its limit, the message Relay leaves in the chat includes the link. In the Claude desktop app you can keep it open in the Browser pane next to your chat. It works for every agent.
 - **Codex turns in the ChatGPT app.** When Codex takes over, the notification also has an **Open in ChatGPT** button (or run `relay open`). It opens Codex's thread in the ChatGPT/Codex desktop app, with every step and the final report. The app shows the thread as of when you opened it, so reopen it to refresh. The live viewer updates on its own.
 - **On your phone.** The viewer only listens on this PC (`127.0.0.1`). To watch from your phone over Tailscale, run `relay config set viewer_host <your PC's Tailscale IP>`. With a [Discord webhook](#commands) set, the Discord notifications then link to it too.
 
@@ -144,6 +144,7 @@ MCP tools: `status`, `handoff`, `relays`.
 | `max_legs` | `8` | Max agent runs per relay |
 | `viewer_port` | `7575` | Port for the live viewer. `0` turns it off |
 | `viewer_host` | `"127.0.0.1"` | Where the viewer listens. Set it to your Tailscale IP to watch from your phone |
+| `viewer_auto_open` | `true` | Open the live viewer when a partner takes over |
 
 ## Safety
 
@@ -162,6 +163,7 @@ MCP tools: `status`, `handoff`, `relays`.
 - **Automatic detection is Claude Code only**, through its `StopFailure` hook. When Codex or Antigravity is your main agent, use `handoff` (ask it to "tag out") or `relay run`.
 - **A resumed Claude session runs in the background.** Its work goes into the same conversation history. Reopen the session to see it, or just read `.relay/baton.md` and the diff.
 - **Antigravity support** follows the official docs but hasn't been battle-tested yet. The `agy` CLI can be a fallback runner. The Antigravity IDE alone can hand off through the MCP tools, but it can't run headless. `gemini` is still accepted as an alias for `antigravity`.
+- **Claude desktop app on Windows:** the app runs Claude Code in an app container with its own private copy of AppData. Relay translates the session's folder to its real path before handing it to another agent. It also shows notifications and opens links through Explorer, because Windows drops notifications sent from inside the container.
 - **Codex on Windows:** if Codex's elevated sandbox can't initialise outside its desktop app, Relay switches Codex to its unelevated sandbox, which is still sandboxed. The choice is stored in `~/.agent-state/codex.json`.
 
 ## Pairs well with Tag-Team

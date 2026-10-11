@@ -67,21 +67,26 @@ export function handoff(p) {
   });
   stepTicket(t);
   ensureWaker();
-  const leg = getTicket(t.id).legs[0];
+  const after = getTicket(t.id);
+  const leg = after.legs[0];
+  const queued = !leg && after.state === 'active'; // every partner is out of usage; it starts when one is back
   const back = {
     after_reset: `${label(from)} will be resumed ${resetAt ? fmtIn(resetAt) : 'when its limit resets'} to review the work`,
     after_handoff: `${label(from)} will be resumed automatically to review when ${leg ? label(leg.agent) : 'the partner'} finishes`,
     on_next_message: `the report will be added to ${label(from)}'s session on the user's next message`,
     never: `${label(from)} will not be resumed`,
   }[resume];
+  const waitingFor = queued ? (after.log || []).filter((l) => / waiting: /.test(l)).at(-1)?.replace(/^.* waiting: /, '') : null;
   return {
-    ok: !!leg,
+    ok: !!leg || queued,
     ticket_id: t.id,
     baton_path: batonPath,
     partner: leg?.agent || null,
     message: leg
       ? `${label(leg.agent)} is now working on it. Baton: ${batonPath}. Afterwards ${back}.`
-      : `No partner agent is available right now (all limited or not installed). Relay will start one as soon as possible.`,
+      : queued
+        ? `Every partner is out of usage right now (${waitingFor || 'waiting for a reset'}). Relay will hand it over as soon as one is back. Baton: ${batonPath}.`
+        : 'No partner agent is installed. Install Codex, Antigravity or Claude Code, then try again.',
   };
 }
 
